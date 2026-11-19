@@ -1,0 +1,59 @@
+
+/* ========================================
+   SELLER EDIT PRODUCT PAGE
+======================================== */
+
+/* Current product image section */
+
+.seller-edit-image-preview {
+    width: 100%;
+    max-width: 280px;
+    height: 210px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 10px;
+    border: 1px solid #e1e5ec;
+    border-radius: 9px;
+    background: #f8f9fc;
+}
+
+.seller-edit-image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* No image message */
+
+.seller-no-image {
+    width: fit-content;
+    margin: 0;
+    padding: 13px 17px;
+    border: 1px dashed #c5cad5;
+    border-radius: 7px;
+    background: #f8f9fc;
+    color: #7b8494;
+    font-size: 13px;
+}
+
+/* Image replacement instructions */
+
+.seller-form-group small {
+    display: block;
+    margin-top: 2px;
+    color: #7b8494;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* Responsive image preview */
+
+@media (max-width: 520px) {
+    .seller-edit-image-preview {
+        max-width: 100%;
+        height: 190px;
+    }
+}

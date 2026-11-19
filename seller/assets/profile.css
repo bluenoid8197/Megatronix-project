@@ -1,0 +1,197 @@
+
+/* ========================================
+   SELLER PROFILE PAGE
+======================================== */
+
+.seller-profile-page {
+    width: 84%;
+    max-width: 1000px;
+    margin: 45px auto;
+    min-height: 60vh;
+}
+
+/* Page Heading */
+.seller-profile-heading {
+    font-family: 'Poppins', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: #202938;
+    margin-bottom: 25px;
+}
+
+/* Success and Error Messages */
+.seller-profile-success,
+.seller-profile-error {
+    padding: 13px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-family: 'Roboto', sans-serif;
+    font-size: 14px;
+}
+
+.seller-profile-success {
+    background: #e8f7ed;
+    color: #237a43;
+    border: 1px solid #b9e5c7;
+}
+
+.seller-profile-error {
+    background: #fdecec;
+    color: #b42318;
+    border: 1px solid #f5c2c0;
+}
+
+/* Main Profile Card */
+.seller-profile-card {
+    background: #ffffff;
+    border: 1px solid #e2e5eb;
+    border-radius: 10px;
+    padding: 30px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* Card Section Headings */
+.seller-profile-card-heading {
+    font-family: 'Poppins', sans-serif;
+    font-size: 19px;
+    font-weight: 600;
+    color: #202938;
+    margin-bottom: 22px;
+}
+
+/* Form Groups */
+.seller-profile-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex: 1;
+}
+
+.seller-profile-form-group label {
+    font-family: 'Roboto', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: #202938;
+}
+
+.seller-profile-form-group input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #d5d9e0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #202938;
+    font-family: 'Roboto', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+}
+
+.seller-profile-form-group input:focus {
+    border-color: #7248ae;
+    box-shadow: 0 0 0 3px rgba(114, 72, 174, 0.12);
+}
+
+.seller-profile-form-group input::placeholder {
+    color: #9aa2af;
+}
+
+/* Side-by-side Form Fields */
+.seller-profile-form-row {
+    display: flex;
+    gap: 20px;
+}
+
+/* Section Divider */
+.seller-profile-divider {
+    border: none;
+    border-top: 1px solid #e2e5eb;
+    margin: 28px 0;
+}
+
+/* Form Actions */
+.seller-profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 25px;
+}
+
+/* Cancel Button */
+.seller-profile-cancel-btn {
+    display: inline-block;
+    padding: 11px 22px;
+    border: 1px solid #d5d9e0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #202938;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    text-align: center;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.seller-profile-cancel-btn:hover {
+    background: #f3f4f6;
+    border-color: #aeb5c0;
+}
+
+/* Save Button */
+.seller-profile-save-btn {
+    padding: 11px 24px;
+    border: 1px solid #2b2350;
+    border-radius: 6px;
+    background: #2b2350;
+    color: #ffffff;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.seller-profile-save-btn:hover {
+    background: #7248ae;
+    border-color: #7248ae;
+}
+
+/* ========================================
+   RESPONSIVE DESIGN
+======================================== */
+
+@media (max-width: 650px) {
+    .seller-profile-page {
+        width: 92%;
+        margin: 30px auto;
+    }
+
+    .seller-profile-heading {
+        font-size: 23px;
+    }
+
+    .seller-profile-card {
+        padding: 20px;
+    }
+
+    .seller-profile-form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .seller-profile-actions {
+        flex-direction: column-reverse;
+        align-items: stretch;
+    }
+
+    .seller-profile-cancel-btn,
+    .seller-profile-save-btn {
+        width: 100%;
+        box-sizing: border-box;
+    }
+}

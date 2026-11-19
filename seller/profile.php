@@ -1,0 +1,599 @@
+
+<?php
+session_start();
+
+require_once __DIR__ . '/../config/database.php';
+
+// Require login.
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../login.php');
+    exit;
+}
+
+$userId = (int) $_SESSION['user_id'];
+$errors = [];
+
+// Retrieve account information.
+$stmt = $pdo->prepare(
+    'SELECT name, email, role, profile_picture
+     FROM users
+     WHERE id = ?
+     LIMIT 1'
+);
+
+$stmt->execute([$userId]);
+$user = $stmt->fetch();
+
+// If the account no longer exists, end the session.
+if (!$user) {
+    $_SESSION = [];
+    session_destroy();
+
+    header('Location: ../login.php');
+    exit;
+}
+
+// Buyers have their own profile page.
+if ($user['role'] === 'buyer') {
+    header('Location: ../profile.php');
+    exit;
+}
+
+// Only sellers should use this profile page.
+if ($user['role'] !== 'seller') {
+    header('Location: ../login.php');
+    exit;
+}
+
+// Keep session information current.
+$_SESSION['user_name'] = $user['name'];
+$_SESSION['user_email'] = $user['email'];
+$_SESSION['role'] = $user['role'];
+
+$isLoggedIn = true;
+$currentPage = basename($_SERVER['PHP_SELF']);
+
+// Create a CSRF token.
+if (empty($_SESSION['profile_token'])) {
+    $_SESSION['profile_token'] = bin2hex(random_bytes(32));
+}
+
+function profileEscape($value)
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+// Handle profile form submissions.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $token = $_POST['profile_token'] ?? '';
+
+    // Validate CSRF token.
+    if (
+        !is_string($token) ||
+        !isset($_SESSION['profile_token']) ||
+        !hash_equals($_SESSION['profile_token'], $token)
+    ) {
+        $errors[] = 'Invalid form submission. Please refresh the page.';
+    }
+
+    // Handle username update.
+    elseif (isset($_POST['update_name'])) {
+
+        $newName = trim($_POST['new_name'] ?? '');
+        $nameLength = mb_strlen($newName, 'UTF-8');
+
+        if ($nameLength < 3 || $nameLength > 20) {
+            $errors[] = 'Your username must be between 3 and 20 characters.';
+        }
+
+        if (!preg_match('/\A[A-Za-z0-9_]+\z/', $newName)) {
+            $errors[] = 'Your username can only contain letters, numbers, and underscores.';
+        }
+
+        if (empty($errors)) {
+            try {
+                $stmt = $pdo->prepare(
+                    'UPDATE users
+                     SET name = ?
+                     WHERE id = ?'
+                );
+
+                $stmt->execute([$newName, $userId]);
+
+                $_SESSION['user_name'] = $newName;
+
+                header('Location: profile.php?name_updated=1');
+                exit;
+
+            } catch (Throwable $e) {
+                error_log('Seller profile username update error: ' . $e->getMessage());
+
+                $errors[] = 'Could not update your username. Please try again.';
+            }
+        }
+    }
+
+    // Handle profile-picture upload.
+    elseif (isset($_FILES['profile_picture'])) {
+
+        $file = $_FILES['profile_picture'];
+
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $errors[] = 'Please choose an image to upload.';
+        }
+
+        if (empty($errors)) {
+
+            // Maximum file size: 2 MB.
+            $maxFileSize = 2 * 1024 * 1024;
+
+            if ($file['size'] > $maxFileSize) {
+                $errors[] = 'The image must not exceed 2 MB.';
+            }
+
+            if (!is_uploaded_file($file['tmp_name'])) {
+                $errors[] = 'Invalid uploaded file.';
+            }
+        }
+
+        // Verify actual image information.
+        $imageInfo = false;
+        $mimeType = '';
+
+        if (empty($errors)) {
+            $imageInfo = getimagesize($file['tmp_name']);
+
+            if ($imageInfo !== false) {
+                $mimeType = $imageInfo['mime'] ?? '';
+            }
+        }
+
+        $allowedTypes = [
+            'image/jpeg' => 'jpg',
+            'image/png'  => 'png',
+            'image/webp' => 'webp'
+        ];
+
+        if (
+            empty($errors) &&
+            (
+                $imageInfo === false ||
+                !isset($allowedTypes[$mimeType])
+            )
+        ) {
+            $errors[] = 'Only valid JPEG, PNG, and WebP images are allowed.';
+        }
+
+        // Maximum dimensions: 1024 × 1024 pixels.
+        if (empty($errors) && $imageInfo !== false) {
+
+            $width = (int) $imageInfo[0];
+            $height = (int) $imageInfo[1];
+
+            if (
+                $width < 1 ||
+                $height < 1 ||
+                $width > 1024 ||
+                $height > 1024
+            ) {
+                $errors[] = 'Image dimensions must not exceed 1024 × 1024 pixels.';
+            }
+        }
+
+        if (empty($errors)) {
+
+            // Use the same profile-picture directory as the buyer side.
+            $uploadDirectory = __DIR__ . '/../uploads/profile-pictures/';
+
+            // Create the directory if it does not exist.
+            if (
+                !is_dir($uploadDirectory) &&
+                !mkdir($uploadDirectory, 0755, true) &&
+                !is_dir($uploadDirectory)
+            ) {
+                $errors[] = 'Could not create the profile-picture folder.';
+            }
+
+            if (
+                empty($errors) &&
+                !is_writable($uploadDirectory)
+            ) {
+                $errors[] = 'The profile-picture folder is not writable.';
+            }
+
+            if (empty($errors)) {
+
+                // Generate a unique filename.
+                $filename = bin2hex(random_bytes(16))
+                    . '.' . $allowedTypes[$mimeType];
+
+                $destination = $uploadDirectory . $filename;
+
+                if (!move_uploaded_file($file['tmp_name'], $destination)) {
+
+                    $errors[] = 'Could not save the uploaded image.';
+
+                } else {
+
+                    // Store the same relative path format used by buyers.
+                    $relativePath = 'uploads/profile-pictures/' . $filename;
+
+                    try {
+                        // Update only the logged-in seller's record.
+                        $stmt = $pdo->prepare(
+                            'UPDATE users
+                             SET profile_picture = ?
+                             WHERE id = ?'
+                        );
+
+                        $stmt->execute([$relativePath, $userId]);
+
+                        // Delete the old picture after the database update.
+                        $oldPicture = $user['profile_picture'] ?? null;
+
+                        if (
+                            $oldPicture &&
+                            strpos($oldPicture, 'uploads/profile-pictures/') === 0 &&
+                            basename($oldPicture) === substr(
+                                $oldPicture,
+                                strlen('uploads/profile-pictures/')
+                            )
+                        ) {
+                            $oldPath = __DIR__ . '/../' . $oldPicture;
+
+                            if (is_file($oldPath)) {
+                                unlink($oldPath);
+                            }
+                        }
+
+                        header('Location: profile.php?picture_updated=1');
+                        exit;
+
+                    } catch (Throwable $e) {
+
+                        error_log('Seller profile picture update error: ' . $e->getMessage());
+
+                        if (is_file($destination)) {
+                            unlink($destination);
+                        }
+
+                        $errors[] = 'Could not update your profile picture.';
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Prepare the profile-picture URL.
+$profilePicture = $user['profile_picture'] ?? '';
+$profilePictureUrl = '';
+
+if (
+    $profilePicture !== '' &&
+    strpos($profilePicture, 'uploads/profile-pictures/') === 0 &&
+    basename($profilePicture) === substr(
+        $profilePicture,
+        strlen('uploads/profile-pictures/')
+    )
+) {
+    $picturePath = __DIR__ . '/../' . $profilePicture;
+
+    if (is_file($picturePath)) {
+        $profilePictureUrl = '../' . $profilePicture;
+    }
+}
+
+// Success messages.
+$pictureUpdated = isset($_GET['picture_updated'])
+    && $_GET['picture_updated'] === '1';
+
+$nameUpdated = isset($_GET['name_updated'])
+    && $_GET['name_updated'] === '1';
+
+// Display account information.
+$userName = profileEscape($user['name']);
+$userEmail = profileEscape($user['email']);
+$userRole = profileEscape(ucfirst($user['role']));
+
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>My Profile | Megatronix</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="assets/seller.css">
+    <link rel="stylesheet" href="assets/profile.css">
+</head>
+
+<body class="profile-page">
+
+    <header>
+        <nav>
+            <h2><a href="index.php">Megatronix</a></h2>
+
+            <ul>
+                <li>
+                    <a href="index.php" class="<?= $currentPage === 'index.php' ? 'active' : '' ?>">
+                        <span class="material-symbols-outlined">dashboard</span>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+
+                <li>
+                    <a href="products.php" class="<?= $currentPage === 'products.php' ? 'active' : '' ?>">
+                        <span class="material-symbols-outlined">inventory_2</span>
+                        <span>My Products</span>
+                    </a>
+                </li>
+
+                <li>
+                    <a href="orders.php" class="<?= $currentPage === 'orders.php' ? 'active' : '' ?>">
+                        <span class="material-symbols-outlined">receipt_long</span>
+                        <span>Orders</span>
+                    </a>
+                </li>
+
+                <?php if ($isLoggedIn): ?>
+                    <li class="profile-dropdown">
+                        <a
+                            class="<?= $currentPage === 'profile.php' ? 'active' : '' ?>"
+                            href="profile.php">
+
+                            <span class="material-symbols-outlined">person</span>
+                            <span><?= $userName ?></span>
+                        </a>
+
+                    
+                    </li>
+                <?php endif; ?>
+            </ul>
+        </nav>
+    </header>
+
+    <main class="account-layout">
+
+        <!-- Account sidebar -->
+        <aside class="account-sidebar">
+
+            <div class="account-sidebar-header">
+                <h2>My Account</h2>
+            </div>
+
+            <nav class="account-menu">
+                <a href="products.php">My Products</a>
+                <a href="orders.php">My Orders</a>
+                <a
+                    href="../logout.php"
+                    onclick="return confirm('Are you sure you want to log out?');">
+                    Log Out
+                </a>
+            </nav>
+
+        </aside>
+
+        <!-- Main account content -->
+        <section class="account-content">
+
+            <div class="account-heading">
+                <h1>My Profile</h1>
+                <p>Manage your seller account and view your account information.</p>
+            </div>
+
+            <!-- Profile settings -->
+            <section class="account-card profile-picture-card">
+
+                <div class="profile-picture-display">
+
+                    <?php if ($profilePictureUrl !== ''): ?>
+
+                        <img
+                            class="profile-avatar"
+                            src="<?= profileEscape($profilePictureUrl) ?>"
+                            alt="Your profile picture">
+
+                    <?php else: ?>
+
+                        <div class="profile-avatar profile-avatar-placeholder">
+                            <?= profileEscape(strtoupper(substr($user['name'], 0, 1))) ?>
+                        </div>
+
+                    <?php endif; ?>
+
+                    <div class="profile-picture-info">
+                        <h2>This is your profile</h2>
+                        <p>This is where you make changes to your profile.</p>
+
+                        <p class="profile-picture-restrictions">
+                            Upload your picture of 1024 x 1024 pixels.
+                        </p>
+                    </div>
+
+                </div>
+
+                <?php if ($pictureUpdated): ?>
+                    <p class="profile-upload-success">
+                        Profile picture updated successfully.
+                    </p>
+                <?php endif; ?>
+
+                <?php if ($nameUpdated): ?>
+                    <p class="profile-upload-success">
+                        Your username has been updated successfully.
+                    </p>
+                <?php endif; ?>
+
+                <?php if (!empty($errors)): ?>
+                    <div class="profile-upload-errors">
+                        <?php foreach ($errors as $error): ?>
+                            <p><?= profileEscape($error) ?></p>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Change profile picture -->
+                <form
+                    action="profile.php"
+                    method="POST"
+                    enctype="multipart/form-data"
+                    class="profile-picture-form">
+
+                    <input
+                        type="hidden"
+                        name="profile_token"
+                        value="<?= profileEscape($_SESSION['profile_token']) ?>">
+
+                    <label for="profile_picture">
+                        Change Profile Picture
+                    </label>
+
+                    <input
+                        type="file"
+                        id="profile_picture"
+                        name="profile_picture"
+                        accept="image/jpeg,image/png,image/webp"
+                        required>
+
+                    <button type="submit" class="button">
+                        Upload Profile Picture
+                    </button>
+
+                </form>
+
+                <div class="profile-settings-divider"></div>
+
+                <!-- Change username -->
+                <div class="profile-name-heading">
+                    <h2>Change Your Username</h2>
+                    <p>Update the username displayed on your seller account.</p>
+                </div>
+
+                <form
+                    action="profile.php"
+                    method="POST"
+                    class="profile-name-form">
+
+                    <input
+                        type="hidden"
+                        name="profile_token"
+                        value="<?= profileEscape($_SESSION['profile_token']) ?>">
+
+                    <label for="new_name">Username</label>
+
+                    <input
+                        type="text"
+                        id="new_name"
+                        name="new_name"
+                        minlength="3"
+                        maxlength="20"
+                        pattern="[A-Za-z0-9_]+"
+                        value="<?= profileEscape($user['name']) ?>"
+                        required>
+
+                    <button
+                        type="submit"
+                        name="update_name"
+                        value="1"
+                        class="button">
+
+                        Save Username
+
+                    </button>
+
+                </form>
+
+            </section>
+
+            <!-- Account information -->
+            <section class="account-card">
+
+                <div class="account-card-heading">
+                    <h2>Account Information</h2>
+                    <p>Your registered seller account details.</p>
+                </div>
+
+                <div class="profile-details">
+
+                    <div class="profile-detail-row">
+                        <span class="profile-detail-label">Username</span>
+                        <span class="profile-detail-value"><?= $userName ?></span>
+                    </div>
+
+                    <div class="profile-detail-row">
+                        <span class="profile-detail-label">Email Address</span>
+                        <span class="profile-detail-value"><?= $userEmail ?></span>
+                    </div>
+
+                    <div class="profile-detail-row">
+                        <span class="profile-detail-label">Account Type</span>
+
+                        <span class="profile-detail-value">
+                            <span class="account-type"><?= $userRole ?></span>
+                        </span>
+                    </div>
+
+                </div>
+
+            </section>
+
+        </section>
+
+    </main>
+
+    <footer class="site-footer">
+
+        <div class="footer-container">
+
+            <div class="footer-brand">
+                <h2>Megatronix</h2>
+                <p>Your destination for electronics and gadgets.</p>
+            </div>
+
+            <div class="footer-links">
+                <h3>Quick Links</h3>
+                <a href="../index.php">Home</a>
+                <a href="../about.php">About Us</a>
+                <a href="../products.php">Browse Items</a>
+                <a href="../contact.php">Contact Us</a>
+            </div>
+
+            <div class="footer-contact">
+                <h3>Customer Support</h3>
+                <p>Have questions about our products?</p>
+                <a href="../contact.php">Get in touch with us</a>
+            </div>
+
+        </div>
+
+        <div class="footer-bottom">
+            <p>&copy; <?= date('Y') ?> Megatronix. All rights reserved.</p>
+        </div>
+
+    </footer>
+
+    <script>
+        const usernameInput = document.getElementById('new_name');
+
+        usernameInput.addEventListener('input', function() {
+            this.value = this.value.replace(/[^A-Za-z0-9_]/g, '');
+        });
+    </script>
+
+</body>
+
+</html>
